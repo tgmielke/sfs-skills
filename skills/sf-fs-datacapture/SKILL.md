@@ -35,7 +35,30 @@ When the user provides an image or PDF of a form:
 2. **Classify each field** using the DC component mapping below
 3. **Identify sections** — group related fields into logical screens (5-7 fields max)
 4. **Note conditional logic** — fields that depend on toggle/answer states
-5. **Check for signatures, photos** — these use specialized DC components
+6. **Map fields to standard related data** — see Standard Field Mapping below; flag any form field that naturally fits data we already have from the Work Order
+
+### Standard Field Mapping (Auto-population Candidates)
+
+**Goal:** Reduce technician data entry. If a form field maps to standard Salesforce or Field Service data related to the Work Order, auto-populate it from a prior Get Records step and set the field’s **default value** to that variable. The technician can still view and edit.
+
+After classifying fields, identify which map to the table below. Then **prompt the user**:
+
+> "The following **N** fields appear to map to standard data related to the Work Order: **[list labels, e.g. Customer Name, Contact First Name, Contact Last Name, Asset Name]**. Should we auto-populate these from the Work Order context (technician can still edit)? **Yes / No**"
+
+If **Yes**, add the corresponding Get Records step(s) and set each of those screen fields’ default value to the appropriate element reference (e.g. `Get_Account.Name`, `Get_Contact.FirstName`).
+
+| Form label (examples) | Standard object | Field(s) | Get step | Filter |
+|------------------------|-----------------|----------|----------|--------|
+| Customer Name, Account Name, Account, Organization (account) | Account | Name | Get_Account | Id = Get_Work_Order.AccountId |
+| Contact Name, Contact First Name, Contact Last Name, Customer Contact | Contact | FirstName, LastName | Get_Contact | Id = Get_Work_Order.ContactId |
+| Asset Name, Equipment, Asset, Serial Number (asset) | Asset | Name, SerialNumber | Get_Asset | Id = Get_Work_Order.AssetId |
+| Work Order #, WO Number, Reference # (from WO) | WorkOrder | WorkOrderNumber, Description | Get_Work_Order | Already have (parentRecordId) |
+| Service Appointment, Appointment Time | ServiceAppointment | AppointmentNumber, SchedStartTime | Get_SA (optional) | ParentRecordId or WO Id |
+| Address, Street, City, State, Postal Code (location) | Account / WorkOrder | BillingStreet, etc. or WorkOrder.Address | Get_Account or Get_Work_Order | — |
+
+- **Get_Work_Order** is always first (by `parentRecordId`). Add **Get_Account** and **Get_Contact** when the form has account/contact-like fields. Add **Get_Asset** only when the form has asset/equipment fields.
+- Chain: Start → Get_Work_Order → Get_Account → Get_Contact → (Get_Asset if needed) → first screen. Each Get uses the previous step’s output (e.g. Get_Account filters on `Get_Work_Order.AccountId`).
+- For each auto-populated field, add an **inputParameter** `value` with `<elementReference>Get_Account.Name</elementReference>` (or the correct reference). Technician sees the value pre-filled and can change it.
 
 ### Field Type Mapping (Document → DC Component)
 
@@ -94,7 +117,18 @@ For required fields, also add the `required` input parameter:
 </inputParameters>
 ```
 
-> **Pre-population Warning:** Do NOT use a `value` inputParameter on `dcTextInput` to pre-populate fields from record lookups (e.g., `<elementReference>Get_Account.Name</elementReference>`). This is not a verified supported parameter on DC components and may cause runtime errors. Instead, display looked-up data as read-only `DisplayText` context at the top of the screen (see Work Order Context Display pattern).
+**Default value (auto-population from standard related data):** When the field maps to standard data and the user confirmed auto-population, add a `value` inputParameter so the technician sees it pre-filled and can edit:
+
+```xml
+<inputParameters>
+    <name>value</name>
+    <value>
+        <elementReference>Get_Account.Name</elementReference>
+    </value>
+</inputParameters>
+```
+
+Use the appropriate reference: `Get_Account.Name`, `Get_Contact.FirstName`, `Get_Contact.LastName`, `Get_Asset.Name`, `Get_Asset.SerialNumber`, `Get_Work_Order.WorkOrderNumber`, etc. If the runtime in a given org does not accept `value` and shows an error, fall back to showing that data only in the DisplayText context block and leave the input without a default.
 
 ### DC Picklist Pattern (single-select dropdown)
 
@@ -219,6 +253,9 @@ Show/hide a field based on toggle state:
 
 ## Phase 2: Flow Design
 
+1. **Confirm auto-population** — If Phase 1 identified standard-field mappings, you should have already prompted the user and added Get_Account / Get_Contact / Get_Asset as needed. Ensure recordLookups are chained before the first screen and that each auto-populated field has its `value` inputParameter set.
+2. **Screen layout** — Apply the rules below.
+
 ### Screen Organization for Mobile
 
 1. **Max 5-7 fields per screen** — avoid scrolling on phones
@@ -309,6 +346,8 @@ Show/hide a field based on toggle state:
         <storeOutputAutomatically>true</storeOutputAutomatically>
     </recordLookups>
 
+    <!-- When auto-populating standard fields: add Get_Account, Get_Contact, (Get_Asset). Set Get_Work_Order.connector to Get_Account; Get_Account.connector to Get_Contact; Get_Contact.connector (and Get_Asset if used) to {{FIRST_SCREEN}}. -->
+
     <!-- screens -->
 
     <start>
@@ -347,10 +386,12 @@ Show/hide a field based on toggle state:
 
 ### Work Order Context Display (first field on first screen)
 
+Always show Work Order context. When Get_Account and/or Get_Contact are used (auto-population), include them so the technician sees the related context even if they don’t edit those fields:
+
 ```xml
 <fields>
     <name>Display_WO_Context</name>
-    <fieldText>&lt;p&gt;&lt;b&gt;Work Order:&lt;/b&gt; {!Get_Work_Order.WorkOrderNumber}&lt;/p&gt;&lt;p&gt;&lt;b&gt;Subject:&lt;/b&gt; {!Get_Work_Order.Subject}&lt;/p&gt;</fieldText>
+    <fieldText>&lt;p&gt;&lt;b&gt;Work Order:&lt;/b&gt; {!Get_Work_Order.WorkOrderNumber}&lt;/p&gt;&lt;p&gt;&lt;b&gt;Subject:&lt;/b&gt; {!Get_Work_Order.Subject}&lt;/p&gt;&lt;p&gt;&lt;b&gt;Account:&lt;/b&gt; {!Get_Account.Name}&lt;/p&gt;&lt;p&gt;&lt;b&gt;Contact:&lt;/b&gt; {!Get_Contact.FirstName} {!Get_Contact.LastName}&lt;/p&gt;</fieldText>
     <fieldType>DisplayText</fieldType>
     <styleProperties>
         <verticalAlignment><stringValue>top</stringValue></verticalAlignment>
@@ -358,6 +399,8 @@ Show/hide a field based on toggle state:
     </styleProperties>
 </fields>
 ```
+
+If Get_Asset is used, add: `&lt;p&gt;&lt;b&gt;Asset:&lt;/b&gt; {!Get_Asset.Name}&lt;/p&gt;`. Omit Account/Contact/Asset lines when that Get step is not present.
 
 ### XML Element Ordering (Alphabetical — MANDATORY)
 
@@ -395,6 +438,7 @@ Use the **sf-deploy** skill:
 - [ ] Signature pad accepts input (`dcSignature` — test on actual mobile before relying on this)
 - [ ] Flow works offline (airplane mode test)
 - [ ] Work Order context displays correctly on first screen
+- [ ] Auto-populated standard fields (when used) show default values; technician can edit
 - [ ] Only verified DC components used: `dcTextInput`, `dcPicklist`, `dcCbGroup`, `dcToggle`, `DisplayText`
 
 ---
