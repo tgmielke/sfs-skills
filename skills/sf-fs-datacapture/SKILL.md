@@ -47,10 +47,15 @@ Data capture flows use **Field Service DC components**, NOT standard flow field 
 | Dropdown / picklist | `runtime_service_fieldservice:dcPicklist` | `ComponentChoice` | Uses `choiceReferences` |
 | Checkbox group (multi) | `runtime_service_fieldservice:dcCbGroup` | `ComponentMultiChoice` | Uses `choiceReferences` |
 | Toggle / Yes-No | `runtime_service_fieldservice:dcToggle` | `ComponentInstance` | Boolean toggle, ref via `.isActive` |
-| Photo / camera | `runtime_service_fieldservice:dcUpImage` | `ComponentInstance` | Set `useCameraOnly` input param |
-| Signature | `runtime_service_fieldservice:dcSignature` | `ComponentInstance` | Pass `parentRecordId` input param |
+| Photo / file upload | _(use DisplayText reminder)_ | `DisplayText` | **No inline upload in DataCaptureFlow** — neither `dcUpImage` nor `forceContent:fileUpload` are supported. Use DisplayText to remind tech to attach photos via WO after form completion |
+| Signature | `runtime_service_fieldservice:dcSignature` | `ComponentInstance` | Pass `parentRecordId` input param. **Unverified on mobile — test before relying on this** |
 | Section header | _(none)_ | `DisplayText` | HTML-formatted `fieldText` |
 | Instructions / read-only | _(none)_ | `DisplayText` | Informational text |
+
+> **Known Limitation — No file/photo upload in DataCaptureFlow.**
+> - `runtime_service_fieldservice:dcUpImage` — NOT a real component. Causes: `"screen field type undefined used for field undefined not yet supported"`.
+> - `forceContent:fileUpload` — Rejected at deploy time: `"doesn't implement any marker interface that's supported for flows of type DataCaptureFlow"`.
+> - **Workaround:** Use a `DisplayText` field to instruct technicians to attach photos to the Work Order after form completion (see Photo Capture pattern below). This is the pattern used by all working deployed DC flows.
 
 ### DC Text Input Pattern (most common field)
 
@@ -88,6 +93,8 @@ For required fields, also add the `required` input parameter:
     </value>
 </inputParameters>
 ```
+
+> **Pre-population Warning:** Do NOT use a `value` inputParameter on `dcTextInput` to pre-populate fields from record lookups (e.g., `<elementReference>Get_Account.Name</elementReference>`). This is not a verified supported parameter on DC components and may cause runtime errors. Instead, display looked-up data as read-only `DisplayText` context at the top of the screen (see Work Order Context Display pattern).
 
 ### DC Picklist Pattern (single-select dropdown)
 
@@ -164,24 +171,18 @@ Show/hide a field based on toggle state:
 </visibilityRule>
 ```
 
-### DC Image Upload Pattern
+### Photo Capture (DisplayText Reminder Pattern)
+
+> **No inline photo/file upload in DataCaptureFlow.**
+> - `dcUpImage` — not a real component, causes "screen field type undefined" error at runtime.
+> - `forceContent:fileUpload` — rejected at deploy: "doesn't implement marker interface for DataCaptureFlow".
+> - Use this DisplayText pattern instead (matches all working deployed DC flows):
 
 ```xml
 <fields>
-    <name>{{Upload_Name}}</name>
-    <extensionName>runtime_service_fieldservice:dcUpImage</extensionName>
-    <fieldType>ComponentInstance</fieldType>
-    <inputParameters>
-        <name>label</name>
-        <value><stringValue>Upload Photos</stringValue></value>
-    </inputParameters>
-    <inputParameters>
-        <name>useCameraOnly</name>
-        <value><booleanValue>true</booleanValue></value>
-    </inputParameters>
-    <inputsOnNextNavToAssocScrn>UseStoredValues</inputsOnNextNavToAssocScrn>
-    <isRequired>{{true|false}}</isRequired>
-    <storeOutputAutomatically>true</storeOutputAutomatically>
+    <name>Photo_Instructions</name>
+    <fieldText>&lt;p&gt;&lt;b&gt;Reminder:&lt;/b&gt; Please use the device camera to attach photos to the work order after completing this form.&lt;/p&gt;</fieldText>
+    <fieldType>DisplayText</fieldType>
     <styleProperties>
         <verticalAlignment><stringValue>top</stringValue></verticalAlignment>
         <width><stringValue>12</stringValue></width>
@@ -386,14 +387,15 @@ Use the **sf-deploy** skill:
 
 ## Phase 5: Verification
 
-- [ ] All screens render on Field Service mobile app
+- [ ] All screens render on Field Service mobile app (no "screen field type undefined" errors)
 - [ ] Voice-to-form works (mic icon appears, dictation maps to fields)
 - [ ] Toggle-based conditional fields show/hide correctly
 - [ ] Field values persist when navigating between screens
-- [ ] Photo capture opens device camera
-- [ ] Signature pad accepts input
+- [ ] Photo reminder DisplayText renders (no inline upload in DataCaptureFlow — neither `dcUpImage` nor `forceContent:fileUpload` work)
+- [ ] Signature pad accepts input (`dcSignature` — test on actual mobile before relying on this)
 - [ ] Flow works offline (airplane mode test)
 - [ ] Work Order context displays correctly on first screen
+- [ ] Only verified DC components used: `dcTextInput`, `dcPicklist`, `dcCbGroup`, `dcToggle`, `DisplayText`
 
 ---
 
